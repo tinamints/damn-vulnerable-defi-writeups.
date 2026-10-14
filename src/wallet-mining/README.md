@@ -4,7 +4,7 @@ There’s a contract that incentivizes users to deploy Safe wallets, rewarding t
 
 The deployer contract only works with a Safe factory and copy set during deployment. It looks like the [Safe singleton factory](https://github.com/safe-global/safe-singleton-factory) is already deployed.
 
-The team transferred 20 million DVT tokens to a user at ` 0xe8BbB8395a7984D06A794aE86e4D723526b55E98`, where her plain 1-of-1 Safe was supposed to land. But they lost the nonce they should use for deployment.
+The team transferred 20 million DVT tokens to a user at ` 0xCe07CF30B540Bb84ceC5dA5547e1cb4722F9E496`, where her plain 1-of-1 Safe was supposed to land. But they lost the nonce they should use for deployment.
 >Note (tina): plain 1-of-1 Safe? isn't there's a formula to create a safe address?
 
 To make matters worse, there's been rumours of a vulnerability in the system. The team's freaked out. Nobody knows what to do, let alone the user. She granted you access to her private key.

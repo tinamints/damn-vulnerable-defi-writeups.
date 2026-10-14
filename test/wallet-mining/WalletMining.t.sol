@@ -34,7 +34,7 @@ contract WalletMiningChallenge is Test {
     address user;
     uint256 userPrivateKey;
 
-    address constant USER_DEPOSIT_ADDRESS = 0xe8BbB8395a7984D06A794aE86e4D723526b55E98;
+    address constant USER_DEPOSIT_ADDRESS = 0xCe07CF30B540Bb84ceC5dA5547e1cb4722F9E496;
     uint256 constant DEPOSIT_TOKEN_AMOUNT = 20_000_000e18;
 
     DamnValuableToken token;
@@ -159,9 +159,6 @@ contract WalletMiningChallenge is Test {
      */
     function test_walletMining() public checkSolvedByPlayer {
         new Attacker(address(token), address(authorizer), address(walletDeployer), user, userPrivateKey, ward);
-
-        // this is why the exploit works: AuthorizerUpgradeable's needsInit collides with the proxy's non-zero upgrader slot, 
-        // allows replaying init() to self-authorize, then brute-forcing the nonce to find 'USER_DEPOSIT_ADDRESS' and drain funds using her private key.
     }
 
 
@@ -206,7 +203,7 @@ interface IHevm {
 }
 
 contract Attacker {
-    address constant USER_DEPOSIT_ADDRESS = 0xe8BbB8395a7984D06A794aE86e4D723526b55E98;
+    address constant USER_DEPOSIT_ADDRESS = 0xCe07CF30B540Bb84ceC5dA5547e1cb4722F9E496;
     IHevm constant hevm = IHevm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
 
     constructor(
