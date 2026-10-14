@@ -82,7 +82,6 @@ contract BackdoorChallenge is Test {
             recovery,
             users
         );
-        // this is why the exploit works: the `initializer` argument of `SafeProxyFactory.createProxyWithCallback` allows us to execute approveTokens call during the proxy's setup
     }
 
     /**

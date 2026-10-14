@@ -160,6 +160,7 @@ contract TheRewarderChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_theRewarder() public checkSolvedByPlayer {
+        //the answer is from `https://github.com/RealJohnnyTime/damn-vulnerable-defi-v4-solutions/tree/master/test/the-rewarder`
         // Read DVT distribution JSON
         string memory dvtJson = vm.readFile(
             "test/the-rewarder/dvt-distribution.json"
@@ -234,8 +235,6 @@ contract TheRewarderChallenge is Test {
 
         dvt.transfer(recovery, dvt.balanceOf(player));
         weth.transfer(recovery, weth.balanceOf(player));
-
-        // This is why the exploit works: there's no AlreadyClaimed error in claimRewards() when using the same token multiple times
     }
 
     /**

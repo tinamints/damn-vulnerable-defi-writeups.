@@ -117,11 +117,6 @@ contract ShardsChallenge is Test {
          Exploit exploit = new Exploit(marketplace,token,recovery);
         exploit.attack(1);
         console.log("recovery balance",token.balanceOf(address(recovery)));
-        
-        // this is why the exploit works: ShardsNFTMarketplace.fill() rounds the payment down (want * price / totalShards) 
-        //so buying a small number of shards costs 0 DVT, while cancel() refunds using a different formula (shards * rate / 1e6) 
-        //that pays back real DVT — and cancel()'s time check is written backwards so it can be called immediately, 
-        //letting the attacker fill-for-free then cancel-for-profit in one transaction and send the stolen DVT to recovery
     }
 
     /**

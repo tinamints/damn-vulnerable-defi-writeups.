@@ -97,9 +97,6 @@ contract ClimberChallenge is Test {
         );
 
         attackContract.attack(address(maliciousImpl));
-
-        // this is why the exploit works: ClimberTimelock.execute() runs the actions before checking if they were scheduled — so the attacker bundles the malicious
-        //actions with a callback that schedules them mid-execution, satisfying the check retroactively and allows the attacker to sweep the vault's funds
     }
 
     /**

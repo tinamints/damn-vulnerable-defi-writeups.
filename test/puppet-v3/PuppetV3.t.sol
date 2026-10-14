@@ -145,12 +145,6 @@ function test_assertInitialState() public view {
         console.log("quote: ", quote);
         lendingPool.borrow(LENDING_POOL_INITIAL_TOKEN_BALANCE);
         token.transfer(recovery,LENDING_POOL_INITIAL_TOKEN_BALANCE);
-
-        //this is why the exploit works:  PuppetV3Pool prices collateral off a 10-min Uniswap V3 TWAP,
-        // but a single large swap right before borrowing still skews that average — and warping time
-        // forward (up to the challenge's 115s deadline) increases the crashed price's weight in the
-        // window, pushing the WETH quote low enough to drain the pool for almost nothing.
-        
     }
 
     /**

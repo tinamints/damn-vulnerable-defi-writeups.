@@ -55,9 +55,6 @@ contract TrusterChallenge is Test {
     function test_truster() public checkSolvedByPlayer {
         Attacker attacker = new Attacker(pool, recovery, token, TOKENS_IN_POOL);
         attacker.attack();
-
-        //this is why the exploit works: 'target' can be any address and flashloan doesn't check'data' contents
-        //so we can set 'target'=pool and call 'approve' on it to approve the attacker on its token
     }
 
     /**

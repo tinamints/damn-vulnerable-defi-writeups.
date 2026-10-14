@@ -76,12 +76,6 @@ contract ABISmugglingChallenge is Test {
          Exploit exploit = new Exploit(address(vault),address(token),recovery);
         bytes memory payload = exploit.executeExploit();
         address(vault).call(payload);
-
-        //this is why the exploit works:  execute() reads the permission-check selector from 
-        //a hardcoded calldata position (byte 100, 4 + 32*3) instead of following the real actionData offset,
-        // so you set that offset to 0x80 and put the permitted withdraw selector at byte 100 as a decoy
-        // while the real actionData (sweepFunds) sits further along and gets executed.
-        
     }
 
     /**

