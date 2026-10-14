@@ -12,4 +12,4 @@ Before user funds are taken, close all positions and save all available collater
 
 The devs have offered part of their treasury in case you need it for the operation: 200 WETH and a little over 6 LP tokens. Don't worry about profits, but don't use all their funds. Also, make sure to transfer any rescued assets to the treasury account.
 
-_NOTE: this challenge requires a valid RPC URL to fork mainnet state into your local environment._
+
